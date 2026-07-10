@@ -301,11 +301,15 @@ def enter_jwxt_through_cas(
                 password_box = page.locator(
                     'input[type="password"]'
                 ).first
-                if (
-                    password_box.count() > 0
-                    and password_box.is_visible(timeout=1000)
-                ):
-                    raise RuntimeError("LOGIN_STATE_EXPIRED")
+                if password_box.count() > 0:
+                    try:
+                        password_box.wait_for(
+                            state="visible",
+                            timeout=1000,
+                        )
+                        raise RuntimeError("LOGIN_STATE_EXPIRED")
+                    except PlaywrightTimeoutError:
+                        pass
             except PlaywrightTimeoutError:
                 pass
 
@@ -743,6 +747,12 @@ def main() -> None:
                     f"推送{push_count}次"
                 )
                 print()
+
+                # GitHub Actions 已由 cron 每10分钟启动一次，
+                # 每次检查完成后应立即退出，不能在任务内继续倒计时。
+                if IS_GITHUB_ACTIONS:
+                    log("GitHub Actions 单次检查完成，程序退出。")
+                    break
 
                 countdown(CHECK_INTERVAL)
 

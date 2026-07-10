@@ -276,19 +276,18 @@ def login_with_account(page: Page, context: BrowserContext) -> None:
 
     login_button.click()
 
-    try:
-        page.wait_for_url(
-            "**jwxt.zzu.edu.cn/**",
-            timeout=90000,
-        )
-    except PlaywrightTimeoutError as error:
-        save_debug_files(page, "自动登录后未进入教务系统")
-        raise RuntimeError(
-            f"自动登录失败，当前地址：{page.url}"
-        ) from error
+    # 不使用 wait_for_url，避免页面跳转过快导致错过导航事件。
+    deadline = time.time() + 90
 
-    if "jwxt.zzu.edu.cn" not in page.url:
-        save_debug_files(page, "自动登录未进入教务系统")
+    while time.time() < deadline:
+        if (
+            "jwxt.zzu.edu.cn" in page.url
+            and "cas.s.zzu.edu.cn" not in page.url
+        ):
+            break
+        page.wait_for_timeout(500)
+    else:
+        save_debug_files(page, "自动登录后未进入教务系统")
         raise RuntimeError(
             f"自动登录失败，当前地址：{page.url}"
         )
@@ -702,7 +701,7 @@ def main() -> None:
 
     print("=" * 60)
     print("郑州大学成绩监控已启动")
-    print("本脚本不保存账号密码，只使用 login_save.py 生成的登录状态")
+    print("本脚本优先使用已保存状态，失效时可使用环境变量自动登录")
     print("每轮均从统一认证入口进入，避免直接访问教务系统产生假登录页")
     print(f"检查间隔：{CHECK_INTERVAL // 60}分钟")
     print("第一次运行只建立基准，不推送已有成绩")

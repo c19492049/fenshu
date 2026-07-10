@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+grade_monitor.log
+.env

@@ -37,6 +37,8 @@ LOGIN_URL = (
 HOME_URL = "https://jwxt.zzu.edu.cn/student/home"
 
 SEND_KEY = os.getenv("SEND_KEY", "").strip()
+ACCOUNT = os.getenv("ZZU_ACCOUNT", "").strip()
+PASSWORD = os.getenv("ZZU_PASSWORD", "").strip()
 
 CHECK_INTERVAL = 600
 HEADLESS = os.getenv("HEADLESS", "false").strip().lower() in {
@@ -236,6 +238,74 @@ def save_debug_files(page: Page, reason: str) -> None:
 
 
 # ============================================================
+# 自动登录
+# ============================================================
+
+def login_with_account(page: Page, context: BrowserContext) -> None:
+    """使用 GitHub Secrets 中的账号密码重新登录。"""
+    if not ACCOUNT or not PASSWORD:
+        raise RuntimeError(
+            "登录状态失效，且未配置 ZZU_ACCOUNT/ZZU_PASSWORD。"
+        )
+
+    log("登录状态失效，尝试使用 GitHub Secrets 自动登录……")
+
+    page.goto(
+        LOGIN_URL,
+        wait_until="domcontentloaded",
+        timeout=PAGE_TIMEOUT,
+    )
+
+    username_input = page.get_by_placeholder("请输入学号/工号")
+    username_input.wait_for(state="visible", timeout=15000)
+    username_input.fill(ACCOUNT)
+
+    password_input = page.locator('input[type="password"]').first
+    password_input.wait_for(state="visible", timeout=15000)
+    password_input.fill(PASSWORD)
+
+    login_button = page.get_by_role(
+        "button",
+        name="登录",
+        exact=True,
+    )
+    if login_button.count() == 0:
+        login_button = page.locator(
+            "button:has-text('登录'), input[type='submit']"
+        ).first
+
+    login_button.click()
+
+    try:
+        page.wait_for_url(
+            "**jwxt.zzu.edu.cn/**",
+            timeout=90000,
+        )
+    except PlaywrightTimeoutError as error:
+        save_debug_files(page, "自动登录后未进入教务系统")
+        raise RuntimeError(
+            f"自动登录失败，当前地址：{page.url}"
+        ) from error
+
+    if "jwxt.zzu.edu.cn" not in page.url:
+        save_debug_files(page, "自动登录未进入教务系统")
+        raise RuntimeError(
+            f"自动登录失败，当前地址：{page.url}"
+        )
+
+    try:
+        page.wait_for_load_state(
+            "domcontentloaded",
+            timeout=10000,
+        )
+    except PlaywrightTimeoutError:
+        pass
+
+    context.storage_state(path=str(STATE_FILE))
+    log("自动登录成功，新的登录状态已保存。")
+
+
+# ============================================================
 # 浏览器状态
 # ============================================================
 
@@ -307,7 +377,8 @@ def enter_jwxt_through_cas(
                             state="visible",
                             timeout=1000,
                         )
-                        raise RuntimeError("LOGIN_STATE_EXPIRED")
+                        login_with_account(page, context)
+                        return
                     except PlaywrightTimeoutError:
                         pass
             except PlaywrightTimeoutError:
@@ -439,7 +510,13 @@ def open_grade_page(
     page.wait_for_timeout(1500)
 
     if is_cas_page(page):
-        raise RuntimeError("LOGIN_STATE_EXPIRED")
+        login_with_account(page, context)
+        page.goto(
+            HOME_URL,
+            wait_until="domcontentloaded",
+            timeout=PAGE_TIMEOUT,
+        )
+        page.wait_for_timeout(1500)
 
     if page_has_fake_login_message(page):
         raise RuntimeError("FAKE_LOGIN_PAGE")
@@ -474,11 +551,25 @@ def open_grade_page(
         if is_cas_page(page) or any(
             keyword in body_text for keyword in login_keywords
         ):
-            raise RuntimeError("LOGIN_STATE_EXPIRED") from error
-
-        raise RuntimeError(
-            f"首页未找到“我的成绩”入口，当前地址：{page.url}"
-        ) from error
+            login_with_account(page, context)
+            page.goto(
+                HOME_URL,
+                wait_until="domcontentloaded",
+                timeout=PAGE_TIMEOUT,
+            )
+            page.wait_for_timeout(2000)
+            grade_button = page.get_by_text(
+                "我的成绩",
+                exact=True,
+            ).first
+            grade_button.wait_for(
+                state="visible",
+                timeout=25000,
+            )
+        else:
+            raise RuntimeError(
+                f"首页未找到“我的成绩”入口，当前地址：{page.url}"
+            ) from error
 
     grade_button.scroll_into_view_if_needed()
 

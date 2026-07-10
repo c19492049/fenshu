@@ -3,7 +3,7 @@ name: 郑大成绩监控
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/1 * * * *"
+    - cron: "*/5 * * * *"
 
 permissions:
   contents: write

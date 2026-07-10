@@ -202,21 +202,51 @@ def find_grade_frame(page: Page) -> Frame | None:
     return None
 
 
-def open_grade_page(page: Page, context: BrowserContext) -> Frame:
-    ensure_logged_in(page, context)
+existing_frame = find_grade_frame(page)
+if existing_frame is not None:
+    return existing_frame
 
-    frame = find_grade_frame(page)
-    if frame:
-        return frame
+# ===== 调试信息 =====
+print("=" * 60)
+print("当前URL：", page.url)
+print("当前标题：", page.title())
 
-    button = page.locator(".shortcut-item", has_text="我的成绩").first
-    button.wait_for(state="visible", timeout=25_000)
-    button.scroll_into_view_if_needed()
+try:
+    body = page.locator("body").inner_text(timeout=5000)
+except Exception:
+    body = ""
 
-    try:
-        button.click(timeout=15_000)
-    except PlaywrightTimeoutError:
-        button.evaluate("element => element.click()")
+print(body[:3000])
+print("=" * 60)
+
+page.screenshot(path="debug.png", full_page=True)
+
+with open("debug.html", "w", encoding="utf-8") as f:
+    f.write(page.content())
+
+# 判断是不是掉回登录页
+if any(x in body for x in [
+    "统一身份认证",
+    "请输入学号",
+    "请输入密码",
+    "登录",
+]):
+    raise RuntimeError("LOGIN_STATE_EXPIRED")
+
+# 查找"我的成绩"
+grade_button = page.get_by_text("我的成绩", exact=True).first
+
+grade_button.wait_for(
+    state="visible",
+    timeout=15000,
+)
+
+grade_button.scroll_into_view_if_needed()
+
+try:
+    grade_button.click(timeout=15000)
+except PlaywrightTimeoutError:
+    grade_button.evaluate("e=>e.click()")
 
     deadline = time.time() + 35
     while time.time() < deadline:
